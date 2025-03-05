@@ -4,13 +4,13 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import dataclass
 import logging
-from torch import nn
-import torch
+from dataclasses import dataclass
 
-from .utils import create_mlp_block
-from .wavlm import WavLM, WavLMConfig
+import torch
+from audiobox_aesthetics.model.utils import create_mlp_block
+from audiobox_aesthetics.model.wavlm import WavLM, WavLMConfig
+from torch import nn
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -163,9 +163,7 @@ class WavlmAudioEncoderMultiOutput(nn.Module):
                 else:
                     audio_embed = all_outputs[-1][0].transpose(1, 0)
 
-                embed_mask = (
-                    (~embed_padding_mask).unsqueeze(dim=-1).type_as(audio_embed)
-                )
+                embed_mask = (~embed_padding_mask).unsqueeze(dim=-1).type_as(audio_embed)
                 audio_embed = (audio_embed * embed_mask).sum(dim=1) / embed_mask.sum(
                     dim=1
                 ).clamp(min=1)

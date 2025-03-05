@@ -48,4 +48,10 @@ audio-aes = "audiobox_aesthetics.cli:app"
 Homepage = "https://github.com/facebookresearch/audiobox-aesthetics"
 Issues = "https://github.com/facebookresearch/audiobox-aesthetics/issues"
 
+[tool.setuptools]
+packages = ["audiobox_aesthetics"]
+package-dir = {"" = "src"} # Corrected line to specify that the root of packages is under "src"
+
+
+
 

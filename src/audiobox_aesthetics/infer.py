@@ -4,19 +4,20 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import dataclass
+import io
 import json
 import logging
 import re
+from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Dict, List
-from tqdm import tqdm
+
 import torch
-import torchaudio
 import torch.nn.functional as F
-
-from .utils import load_model
-
-from .model.aes_wavlm import Normalize, WavlmAudioEncoderMultiOutput
+import torchaudio
+from audiobox_aesthetics.model.aes_wavlm import Normalize, WavlmAudioEncoderMultiOutput
+from audiobox_aesthetics.utils import load_model
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -78,6 +79,7 @@ def make_inference_batch(
 @dataclass
 class AesWavlmPredictorMultiOutput:
     checkpoint_pth: str
+    device: str
     precision: str = "bf16"
     batch_size: int = 1
     data_col: str = "path"
@@ -90,11 +92,11 @@ class AesWavlmPredictorMultiOutput:
         checkpoint_file = load_model(self.checkpoint_pth)
 
         # This method gets called before inference starts
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logging.info(f"Setting up Aesthetic model on {self.device}")
 
         with open(checkpoint_file, "rb") as fin:
-            ckpt = torch.load(fin, map_location=self.device)
+            ckpt = torch.load(fin, map_location="cpu")
             state_dict = {
                 re.sub("^model.", "", k): v for (k, v) in ckpt["state_dict"].items()
             }
@@ -114,6 +116,7 @@ class AesWavlmPredictorMultiOutput:
                 ]
             }
         )
+        print(f"INTERNAL DEVICE = {self.device=}")
         model.load_state_dict(state_dict)
         model.to(self.device)
         model.eval()
@@ -135,7 +138,9 @@ class AesWavlmPredictorMultiOutput:
     def audio_resample_mono(self, data_list: List[Batch]) -> List:
         wavs = []
         for ii, item in enumerate(data_list):
-            if isinstance(item[self.data_col], str):
+            if isinstance(item[self.data_col], str) or isinstance(
+                item[self.data_col], io.BytesIO
+            ):
                 # wav, sr = torchaudio.load(item[self.data_col])
                 wav, sr = read_wav(item)
             else:
@@ -151,23 +156,45 @@ class AesWavlmPredictorMultiOutput:
             wavs.append(wav)
         return wavs
 
+    def predict_from_wav_paths(
+        self,
+        wav_paths: List[str | io.BytesIO],
+        batch_size: int = 10,
+        verbose=True,
+    ) -> List[str]:
+        """Predict aesthetics scores from a list of wav paths."""
+
+        metadata = [{"path": path} for path in wav_paths]
+        outputs = []
+        for ii in tqdm(range(0, len(metadata), batch_size), disable=not verbose):
+            output = self.forward(metadata[ii : ii + batch_size])
+            outputs.extend(output)
+        assert len(outputs) == len(
+            metadata
+        ), f"Output {len(outputs)} != input {len(metadata)} length"
+
+        return outputs
+
     def forward(self, batch):
         with torch.inference_mode():
             bsz = len(batch)
-            wavs = self.audio_resample_mono(batch)
+            # wavs = self.audio_resample_mono(batch)
+            # print(f"bef{len(batch)=}")
             wavs, masks, weights, bids = make_inference_batch(
-                wavs,
+                batch,
                 10,
                 10,
                 sample_rate=self.sample_rate,
             )
+            # print(f"af{len(wavs)=}")
 
             # collate
             wavs = torch.stack(wavs).to(self.device)
             masks = torch.stack(masks).to(self.device)
             weights = torch.tensor(weights).to(self.device)
             bids = torch.tensor(bids).to(self.device)
-
+            # start = perf_counter()
+            # print("MODEL PREPARE_TIME:", perf_counter() - start)
             assert wavs.shape[0] == masks.shape[0] == weights.shape[0] == bids.shape[0]
             preds_all = self.model({"wav": wavs, "mask": masks})
             all_result = {}
@@ -187,8 +214,39 @@ class AesWavlmPredictorMultiOutput:
                 dict(zip(all_result.keys(), vv)) for vv in zip(*all_result.values())
             ]
             # convert to json str
-            all_rows = [json.dumps(x) for x in all_rows]
+            # all_rows = [json.dumps(x) for x in all_rows]
+            # print("MODEL TIME:", perf_counter() - start)
             return all_rows
+
+
+class Resampler:
+    def __init__(self, sample_rate=16000, data_col="path", device="cpu"):
+        self._sample_rate = sample_rate
+        self._data_col = data_col
+
+    def audio_resample_mono(self, data_list: List[Batch]) -> List:
+        wavs = []
+        start = perf_counter()
+        # print("before:", len(data_list))
+        for ii, item in enumerate(data_list):
+            if isinstance(item[self._data_col], str) or isinstance(
+                item[self._data_col], io.BytesIO
+            ):
+                wav, sr = read_wav(item)
+            else:
+                wav = item[self._data_col]
+                sr = item["sample_rate"]
+
+            wav = torchaudio.functional.resample(
+                wav,
+                orig_freq=sr,
+                new_freq=self._sample_rate,
+            )
+            wav = wav.mean(dim=0, keepdim=True)
+            wavs.append(wav)
+        # print("RESAMPLE_TIME:", perf_counter() - start)
+        # print("after:", len(wavs))")
+        return wavs
 
 
 def load_dataset(path, start=None, end=None) -> List[Batch]:

@@ -5,13 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-from functools import partial
-import logging
 import itertools
+import logging
+from functools import partial
 from pathlib import Path
 
 import submitit
-from .infer import initialize_model, load_dataset, main_predict
+from audiobox_aesthetics.infer import initialize_model, load_dataset, main_predict
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -28,12 +28,8 @@ def parse_args():
     # remote == True
     parser.add_argument("--slurm-gpu", default=1, type=int, help="Slurm GPU")
     parser.add_argument("--slurm-cpu", default=10, type=int, help="Slurm CPU")
-    parser.add_argument(
-        "--job-dir", default="/tmp", type=str, help="Slurm job directory"
-    )
-    parser.add_argument(
-        "--partition", default="learn", type=str, help="Slurm partition"
-    )
+    parser.add_argument("--job-dir", default="/tmp", type=str, help="Slurm job directory")
+    parser.add_argument("--partition", default="learn", type=str, help="Slurm partition")
     parser.add_argument("--qos", default="", type=str, help="Slurm QOS")
     parser.add_argument("--account", default="", type=str, help="Slurm account")
     parser.add_argument("--comment", default="", type=str, help="Slurm job comment")
@@ -52,9 +48,7 @@ def parse_args():
     parser.add_argument(
         "--array", default=100, type=int, help="Slurm max array parallelism"
     )
-    parser.add_argument(
-        "--chunk", default=1000, type=int, help="chunk size per instance"
-    )
+    parser.add_argument("--chunk", default=1000, type=int, help="chunk size per instance")
     return parser.parse_args()
 
 
@@ -119,7 +113,7 @@ def app():
 if __name__ == "__main__":
     """
     Example usage:
-    
+
     Single node
     > python cli.py input.jsonl --batch-size 100 > output.jsonl
 
