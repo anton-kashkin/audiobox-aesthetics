@@ -160,6 +160,7 @@ class AesWavlmPredictorMultiOutput:
         self,
         wav_paths: List[str | io.BytesIO],
         batch_size: int = 10,
+        resampler=None,
         verbose=True,
     ) -> List[str]:
         """Predict aesthetics scores from a list of wav paths."""
@@ -167,7 +168,10 @@ class AesWavlmPredictorMultiOutput:
         metadata = [{"path": path} for path in wav_paths]
         outputs = []
         for ii in tqdm(range(0, len(metadata), batch_size), disable=not verbose):
-            output = self.forward(metadata[ii : ii + batch_size])
+            wavs_batch = resampler.audio_resample_mono(
+                metadata[ii : ii + self.batch_size]
+            )
+            output = self.forward(wavs_batch)
             outputs.extend(output)
         assert len(outputs) == len(
             metadata
